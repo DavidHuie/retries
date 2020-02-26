@@ -135,7 +135,9 @@ func WithConstantBackoff(backoff time.Duration) Arg {
 
 // WithWhitelist defines a retry condition where the error has to be
 // contained within a whitelist of errors. Errors are compared using
-// `errors.Is` from the standard library.
+// `errors.Is` from the standard library and by comparing error
+// strings after unwrapping errors (using stdlib error wrapping and
+// pkg/errors error wrapping).
 func WithWhitelist(whitelist ...error) Arg {
 	return func(r *Retrier) *Retrier {
 		r.retryCheck = func(err error) bool {
@@ -143,28 +145,31 @@ func WithWhitelist(whitelist ...error) Arg {
 				if errors.Is(err, e) {
 					return true
 				}
-			}
 
-			return false
-		}
+				// Stdlib error wrapping
+				if err, ok := err.(interface {
+					Unwrap() error
+				}); ok {
+					if err.Unwrap().Error() == e.Error() {
+						return true
+					}
+				}
 
-		return r
-	}
-}
+				// pkg/errors error wrapping
+				if err, ok := err.(interface {
+					Cause() error
+				}); ok {
+					if err.Cause().Error() == e.Error() {
+						return true
+					}
+				}
 
-// WithBlacklist defines a retry condition where the error has to not
-// be contained within a blacklist of errors. Errors are compared
-// using `errors.Is` from the standard library.
-func WithBlacklist(blacklist ...error) Arg {
-	return func(r *Retrier) *Retrier {
-		r.retryCheck = func(err error) bool {
-			for _, e := range blacklist {
-				if errors.Is(err, e) {
-					return false
+				if err.Error() == e.Error() {
+					return true
 				}
 			}
 
-			return true
+			return false
 		}
 
 		return r
