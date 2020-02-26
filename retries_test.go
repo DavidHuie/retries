@@ -3,6 +3,7 @@ package retries
 import (
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"testing"
 	"time"
@@ -196,4 +197,23 @@ func TestWhitelist(t *testing.T) {
 			t.Fatalf("invalid sleep durations: %#v", s.durs)
 		}
 	})
+}
+
+func ExampleFullAPI() {
+	myFunc := func() error {
+		return errors.New("error")
+	}
+
+	retrier := New(
+		func(retryNum int) error {
+			log.Printf("retry number: %d", retryNum)
+			return myFunc()
+		},
+		WithRetries(10),
+		WithWhitelist(errors.New("error")),
+		WithExpBackoff(2),
+	)
+	if err := retrier.Try(); err != nil {
+		log.Println(err)
+	}
 }
