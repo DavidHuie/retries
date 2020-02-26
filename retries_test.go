@@ -199,6 +199,22 @@ func TestWhitelist(t *testing.T) {
 	})
 }
 
+func ExampleSimple() {
+	myFunc := func() error {
+		return errors.New("error")
+	}
+
+	retrier := New(
+		func(retryNum int) error {
+			log.Printf("retry number: %d", retryNum)
+			return myFunc()
+		},
+	)
+	if err := retrier.Try(); err != nil {
+		log.Println(err)
+	}
+}
+
 func ExampleFullAPI() {
 	myFunc := func() error {
 		return errors.New("error")
