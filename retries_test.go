@@ -9,20 +9,26 @@ import (
 	"time"
 )
 
-type sleeperMock struct {
+type clockMock struct {
+	time      time.Time
 	durs      []time.Duration
 	numSleeps int
 }
 
-func (s *sleeperMock) Sleep(d time.Duration) {
-	s.durs = append(s.durs, d)
-	s.numSleeps++
+func (c *clockMock) Sleep(d time.Duration) {
+	c.durs = append(c.durs, d)
+	c.numSleeps++
+	c.time = c.time.Add(d)
+}
+
+func (c *clockMock) Now() time.Time {
+	return c.time
 }
 
 func TestDefault(t *testing.T) {
 	t.Run("retry-func", func(t *testing.T) {
 		check := false
-		r := New(func(i int) error {
+		r := New(func() error {
 			check = true
 			return nil
 		})
@@ -37,45 +43,45 @@ func TestDefault(t *testing.T) {
 	})
 
 	t.Run("retries-run", func(t *testing.T) {
-		s := &sleeperMock{}
+		c := &clockMock{}
 
 		e := errors.New("my error")
 
 		calls := 0
-		r := New(func(i int) error {
+		r := New(func() error {
 			calls++
 			return e
-		}, WithSleeper(s), WithRetries(5))
+		}, WithClock(c), WithRetries(5))
 
 		err := r.Try()
 
 		if !errors.Is(err, e) {
-			t.Fatal("invalid error returned")
+			t.Fatalf("invalid error returned: %s", err)
 		}
 		if calls != 5 {
 			t.Fatal("invalid number of calls")
 		}
-		if s.numSleeps != 4 {
+		if c.numSleeps != 4 {
 			t.Fatal("invalid number of sleeps")
 		}
-		if !reflect.DeepEqual(s.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
-			t.Fatalf("invalid sleep durations: %#v", s.durs)
+		if !reflect.DeepEqual(c.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
+			t.Fatalf("invalid sleep durations: %#v", c.durs)
 		}
 	})
 
 	t.Run("eventual-success", func(t *testing.T) {
-		s := &sleeperMock{}
+		c := &clockMock{}
 
 		e := errors.New("my error")
 
 		calls := 0
-		r := New(func(i int) error {
+		r := NewFull(func(i int, _ time.Time) error {
 			calls++
 			if i < 4 {
 				return e
 			}
 			return nil
-		}, WithSleeper(s), WithRetries(5))
+		}, WithClock(c), WithRetries(5))
 
 		err := r.Try()
 
@@ -85,51 +91,51 @@ func TestDefault(t *testing.T) {
 		if calls != 5 {
 			t.Fatal("invalid number of calls")
 		}
-		if s.numSleeps != 4 {
+		if c.numSleeps != 4 {
 			t.Fatal("invalid number of sleeps")
 		}
-		if !reflect.DeepEqual(s.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
-			t.Fatalf("invalid sleep durations: %#v", s.durs)
+		if !reflect.DeepEqual(c.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
+			t.Fatalf("invalid sleep durations: %#v", c.durs)
 		}
 	})
 }
 
 func TestWhitelist(t *testing.T) {
 	t.Run("simple-whitelist", func(t *testing.T) {
-		s := &sleeperMock{}
+		c := &clockMock{}
 
 		e := errors.New("my error")
 
 		calls := 0
-		r := New(func(i int) error {
+		r := New(func() error {
 			calls++
 			return e
-		}, WithSleeper(s), WithRetries(5), WithWhitelist(e))
+		}, WithClock(c), WithRetries(5), WithWhitelist(e))
 
 		err := r.Try()
 
 		if !errors.Is(err, e) {
-			t.Fatal("invalid error returned")
+			t.Fatalf("invalid error returned: %s", err)
 		}
 		if calls != 5 {
 			t.Fatal("invalid number of calls")
 		}
-		if s.numSleeps != 4 {
+		if c.numSleeps != 4 {
 			t.Fatal("invalid number of sleeps")
 		}
-		if !reflect.DeepEqual(s.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
-			t.Fatalf("invalid sleep durations: %#v", s.durs)
+		if !reflect.DeepEqual(c.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
+			t.Fatalf("invalid sleep durations: %#v", c.durs)
 		}
 	})
 
 	t.Run("whitelist-redefined-errors", func(t *testing.T) {
-		s := &sleeperMock{}
+		c := &clockMock{}
 		calls := 0
 
-		r := New(func(i int) error {
+		r := New(func() error {
 			calls++
 			return errors.New("my error")
-		}, WithSleeper(s), WithRetries(5), WithWhitelist(errors.New("my error")))
+		}, WithClock(c), WithRetries(5), WithWhitelist(errors.New("my error")))
 
 		err := r.Try()
 
@@ -139,24 +145,24 @@ func TestWhitelist(t *testing.T) {
 		if calls != 5 {
 			t.Fatalf("invalid number of calls: %d", calls)
 		}
-		if s.numSleeps != 4 {
+		if c.numSleeps != 4 {
 			t.Fatal("invalid number of sleeps")
 		}
-		if !reflect.DeepEqual(s.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
-			t.Fatalf("invalid sleep durations: %#v", s.durs)
+		if !reflect.DeepEqual(c.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
+			t.Fatalf("invalid sleep durations: %#v", c.durs)
 		}
 	})
 
 	t.Run("no-match", func(t *testing.T) {
-		s := &sleeperMock{}
+		c := &clockMock{}
 
 		e := errors.New("my error")
 
 		calls := 0
-		r := New(func(i int) error {
+		r := New(func() error {
 			calls++
 			return e
-		}, WithSleeper(s), WithRetries(5), WithWhitelist())
+		}, WithClock(c), WithRetries(5), WithWhitelist())
 
 		err := r.Try()
 
@@ -166,21 +172,21 @@ func TestWhitelist(t *testing.T) {
 		if calls != 1 {
 			t.Fatal("invalid number of calls")
 		}
-		if s.numSleeps != 0 {
+		if c.numSleeps != 0 {
 			t.Fatal("invalid number of sleeps")
 		}
 	})
 
 	t.Run("wrapped-err", func(t *testing.T) {
-		s := &sleeperMock{}
+		c := &clockMock{}
 
 		e := errors.New("my error")
 
 		calls := 0
-		r := New(func(i int) error {
+		r := New(func() error {
 			calls++
 			return fmt.Errorf("error %w", e)
-		}, WithSleeper(s), WithRetries(5), WithWhitelist(e))
+		}, WithClock(c), WithRetries(5), WithWhitelist(e))
 
 		err := r.Try()
 
@@ -190,11 +196,11 @@ func TestWhitelist(t *testing.T) {
 		if calls != 5 {
 			t.Fatal("invalid number of calls")
 		}
-		if s.numSleeps != 4 {
+		if c.numSleeps != 4 {
 			t.Fatal("invalid number of sleeps")
 		}
-		if !reflect.DeepEqual(s.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
-			t.Fatalf("invalid sleep durations: %#v", s.durs)
+		if !reflect.DeepEqual(c.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
+			t.Fatalf("invalid sleep durations: %#v", c.durs)
 		}
 	})
 }
@@ -204,29 +210,23 @@ func ExampleSimple() {
 		return errors.New("error")
 	}
 
-	retrier := New(
-		func(retryNum int) error {
-			log.Printf("retry number: %d", retryNum)
-			return myFunc()
-		},
-	)
+	retrier := New(myFunc)
 	if err := retrier.Try(); err != nil {
 		log.Println(err)
 	}
 }
 
 func ExampleFullAPI() {
+	myErr := errors.New("error")
+
 	myFunc := func() error {
-		return errors.New("error")
+		return myErr
 	}
 
 	retrier := New(
-		func(retryNum int) error {
-			log.Printf("retry number: %d", retryNum)
-			return myFunc()
-		},
+		myFunc,
 		WithRetries(10),
-		WithWhitelist(errors.New("error")),
+		WithWhitelist(myErr),
 		WithExpBackoff(2),
 	)
 	if err := retrier.Try(); err != nil {

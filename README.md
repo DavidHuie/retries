@@ -12,12 +12,7 @@ myFunc := func() error {
 	return errors.New("error")
 }
 
-retrier := New(
-	func(retryNum int) error {
-		log.Printf("retry number: %d", retryNum)
-		return myFunc()
-	},
-)
+retrier := New(myFunc)
 if err := retrier.Try(); err != nil {
 	log.Println(err)
 }
@@ -25,17 +20,16 @@ if err := retrier.Try(); err != nil {
 
 All of the parameters in the default strategy can also be customized.
 ```go
+myErr := errors.New("error")
+
 myFunc := func() error {
-	return errors.New("error")
+	return myErr
 }
 
 retrier := New(
-	func(retryNum int) error {
-		log.Printf("retry number: %d", retryNum)
-		return myFunc()
-	},
+	myFunc,
 	WithRetries(10),
-	WithWhitelist(errors.New("error")),
+	WithWhitelist(myErr),
 	WithExpBackoff(2),
 )
 if err := retrier.Try(); err != nil {

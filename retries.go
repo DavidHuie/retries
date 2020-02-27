@@ -12,27 +12,31 @@ const (
 )
 
 type (
-	sleeper struct{}
+	clock struct{}
 
-	// Sleeper is a type that can sleep.
-	Sleeper interface {
+	// Clock is an interface that offers several clock functions.
+	Clock interface {
+		Now() time.Time
 		Sleep(time.Duration)
 	}
 
 	// Arg is a parameter to New.
 	Arg func(*Retrier) *Retrier
 
-	// Func is a function that can be retried. Its input is the
-	// retry number.
-	Func func(retryNum int) error
+	// Func is a function that can be retried.
+	Func func() error
+
+	// FullFunc is a function that can be retried with an extended
+	// interface with access to retry metadata.
+	FullFunc func(retryNum int, lastRetry time.Time) error
 
 	// Retrier is a type that manages retries.
 	Retrier struct {
-		f            Func
-		sleeper      Sleeper
-		retries      int
-		retryCheck   func(error) bool
-		retrySleeper func(int, Sleeper)
+		f             interface{}
+		clock         Clock
+		retries       int
+		retryCheck    func(error) bool
+		sleepStrategy func(int, Clock)
 	}
 )
 
@@ -53,19 +57,46 @@ func New(f Func, args ...Arg) *Retrier {
 	return r
 }
 
+// NewFull initializes a new Retrier. This behaves similar to New, but
+// accepting FullFunc functions, which offer an extended interface.
+func NewFull(f FullFunc, args ...Arg) *Retrier {
+	r := &Retrier{
+		f: f,
+	}
+	for _, a := range args {
+		a(r)
+	}
+
+	r.setDefaults()
+
+	return r
+}
+
 // Try runs the retry process until the number of retries is
 // exhausted.
 func (r *Retrier) Try() error {
 	var err error
+	var lastRetryTime time.Time
 
 	for i := 0; i < r.retries; i++ {
-		err = r.f(i)
+		startTime := r.clock.Now()
+
+		if f, ok := r.f.(Func); ok {
+			err = f()
+		} else if f, ok := r.f.(FullFunc); ok {
+			err = f(i, lastRetryTime)
+		} else {
+			panic("invalid function interface")
+		}
+
+		lastRetryTime = startTime
+
 		if err == nil {
 			return nil
 		}
 
 		if (i != r.retries-1) && r.retryCheck(err) {
-			r.retrySleeper(i, r.sleeper)
+			r.sleepStrategy(i, r.clock)
 			continue
 		}
 
@@ -76,25 +107,30 @@ func (r *Retrier) Try() error {
 }
 
 func (r *Retrier) setDefaults() {
-	if r.sleeper == nil {
-		r.sleeper = &sleeper{}
+	if r.clock == nil {
+		r.clock = &clock{}
 	}
 	if r.retries == 0 {
 		r.retries = defaultRetries
 	}
 	if r.retryCheck == nil {
-		r.retryCheck = defaultRetryCheck
+		r.retryCheck = RetryOnAllErrors
 	}
-	if r.retrySleeper == nil {
+	if r.sleepStrategy == nil {
 		WithExpBackoff(defaultBackoffFactor)(r)
 	}
 }
 
-func (s *sleeper) Sleep(d time.Duration) {
+func (c *clock) Sleep(d time.Duration) {
 	time.Sleep(d)
 }
 
-func defaultRetryCheck(err error) bool {
+func (c *clock) Now() time.Time {
+	return time.Now()
+}
+
+// RetryOnAllErrors is a retry check that retries on all errors.
+func RetryOnAllErrors(err error) bool {
 	return err != nil
 }
 
@@ -112,9 +148,9 @@ func WithRetries(retries int) Arg {
 // seconds.
 func WithExpBackoff(factor int) Arg {
 	return func(r *Retrier) *Retrier {
-		r.retrySleeper = func(retryNum int, sleeper Sleeper) {
+		r.sleepStrategy = func(retryNum int, clock Clock) {
 			s := math.Pow(float64(factor), float64(retryNum))
-			sleeper.Sleep(time.Second * time.Duration(s))
+			clock.Sleep(time.Second * time.Duration(s))
 		}
 
 		return r
@@ -125,8 +161,8 @@ func WithExpBackoff(factor int) Arg {
 // sleep time is constant between retries.
 func WithConstantBackoff(backoff time.Duration) Arg {
 	return func(r *Retrier) *Retrier {
-		r.retrySleeper = func(retryNum int, sleeper Sleeper) {
-			sleeper.Sleep(backoff)
+		r.sleepStrategy = func(retryNum int, clock Clock) {
+			clock.Sleep(backoff)
 		}
 
 		return r
@@ -176,11 +212,12 @@ func WithWhitelist(whitelist ...error) Arg {
 	}
 }
 
-// WithSleeper sets a custom sleeping type. Use this to mock out the
-// sleeping calls a Retrier makes.
-func WithSleeper(s Sleeper) Arg {
+// WithClock sets a custom clock type. Use this to mock out the time
+// calls a Retrier makes.
+func WithClock(c Clock) Arg {
 	return func(r *Retrier) *Retrier {
-		r.sleeper = s
+		r.clock = c
+
 		return r
 	}
 }
@@ -195,10 +232,10 @@ func WithRetryCheck(chk func(error) bool) Arg {
 }
 
 // WithSleepStrategy sets a custom sleeping strategy. The arguments to
-// the strategy are the retry number and the sleeper.
-func WithSleepStrategy(strategy func(retryNum int, sleeper Sleeper)) Arg {
+// the strategy are the retry number and the clock.
+func WithSleepStrategy(strategy func(retryNum int, clock Clock)) Arg {
 	return func(r *Retrier) *Retrier {
-		r.retrySleeper = strategy
+		r.sleepStrategy = strategy
 
 		return r
 	}
