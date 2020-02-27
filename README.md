@@ -5,7 +5,7 @@ A simple, extensible Go retries library.
 ## Example
 
 Without any arguments, the retrier uses the default strategy of using
-exponential back-off, three retries, and retrying on all errors.
+exponential back-off, four retries, and retrying on all errors.
 
 ```go
 myFunc := func() error {

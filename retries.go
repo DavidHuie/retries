@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultRetries       = 3
+	defaultRetries       = 4
 	defaultBackoffFactor = 2
 )
 
@@ -212,8 +212,8 @@ func WithWhitelist(whitelist ...error) Arg {
 	}
 }
 
-// WithClock sets a custom clock type. Use this to mock out the time
-// calls a Retrier makes.
+// WithClock sets a custom clock type for the Retrier. Use this to
+// mock out the time calls a Retrier makes.
 func WithClock(c Clock) Arg {
 	return func(r *Retrier) *Retrier {
 		r.clock = c
@@ -222,7 +222,8 @@ func WithClock(c Clock) Arg {
 	}
 }
 
-// WithRetryCheck determines whether an error should be retried.
+// WithRetryCheck allows the caller to customize the function that
+// determines whether an error should be retried.
 func WithRetryCheck(chk func(error) bool) Arg {
 	return func(r *Retrier) *Retrier {
 		r.retryCheck = chk
@@ -231,8 +232,9 @@ func WithRetryCheck(chk func(error) bool) Arg {
 	}
 }
 
-// WithSleepStrategy sets a custom sleeping strategy. The arguments to
-// the strategy are the retry number and the clock.
+// WithSleepStrategy sets a custom sleeping strategy. This function
+// runs after we've determined that a retry should occur. The
+// arguments to the strategy are the retry number and the clock.
 func WithSleepStrategy(strategy func(retryNum int, clock Clock)) Arg {
 	return func(r *Retrier) *Retrier {
 		r.sleepStrategy = strategy
