@@ -3,6 +3,7 @@ package retries
 import (
 	"errors"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -171,9 +172,10 @@ func WithConstantBackoff(backoff time.Duration) Arg {
 
 // WithWhitelist defines a retry condition where the error has to be
 // contained within a whitelist of errors. Errors are compared using
-// `errors.Is` from the standard library and by comparing error
-// strings after unwrapping errors (using stdlib error wrapping and
-// pkg/errors error wrapping).
+// `errors.Is` from the standard library, by comparing error strings
+// after unwrapping errors (using stdlib error wrapping and pkg/errors
+// error wrapping), and by checking if the whitelisted error is a
+// substring of the returned error.
 func WithWhitelist(whitelist ...error) Arg {
 	return func(r *Retrier) *Retrier {
 		r.retryCheck = func(err error) bool {
@@ -186,7 +188,9 @@ func WithWhitelist(whitelist ...error) Arg {
 				if err, ok := err.(interface {
 					Unwrap() error
 				}); ok {
-					if err.Unwrap().Error() == e.Error() {
+					if err.Unwrap().Error() == e.Error() ||
+						strings.Contains(err.Unwrap().Error(), e.Error()) {
+
 						return true
 					}
 				}
@@ -195,12 +199,16 @@ func WithWhitelist(whitelist ...error) Arg {
 				if err, ok := err.(interface {
 					Cause() error
 				}); ok {
-					if err.Cause().Error() == e.Error() {
+					if err.Cause().Error() == e.Error() ||
+						strings.Contains(err.Cause().Error(), e.Error()) {
+
 						return true
 					}
 				}
 
-				if err.Error() == e.Error() {
+				if err.Error() == e.Error() ||
+					strings.Contains(err.Error(), e.Error()) {
+
 					return true
 				}
 			}

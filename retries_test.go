@@ -203,6 +203,33 @@ func TestWhitelist(t *testing.T) {
 			t.Fatalf("invalid sleep durations: %#v", c.durs)
 		}
 	})
+
+	t.Run("substring error", func(t *testing.T) {
+		c := &clockMock{}
+
+		e := errors.New("really long error")
+
+		calls := 0
+		r := New(func() error {
+			calls++
+			return errors.New("my really long error")
+		}, WithClock(c), WithRetries(5), WithWhitelist(e))
+
+		err := r.Try()
+
+		if err.Error() != "my really long error" {
+			t.Fatalf("invalid error returned: %s", err)
+		}
+		if calls != 5 {
+			t.Fatal("invalid number of calls")
+		}
+		if c.numSleeps != 4 {
+			t.Fatal("invalid number of sleeps")
+		}
+		if !reflect.DeepEqual(c.durs, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}) {
+			t.Fatalf("invalid sleep durations: %#v", c.durs)
+		}
+	})
 }
 
 func ExampleSimple() {
